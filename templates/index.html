@@ -1,45 +1,93 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>Black–Litterman Portfolio Optimizer</title>
-    <link rel="stylesheet" href="/static/style.css">
-  </head>
-  <body>
-    <h1>Black–Litterman Portfolio Optimizer</h1>
-    <form method="POST">
-      <fieldset>
-        <legend>Select tickers</legend>
-        {% for t in all_tickers %}
-          <label><input type="checkbox" name="tickers" value="{{ t }}" {% if t in request.form.getlist('tickers') %}checked{% endif %}> {{ t }}</label>
-        {% endfor %}
-      </fieldset>
-      <button type="submit">Optimize</button>
-    </form>
+<head>
+  <meta charset="UTF-8">
+  <title>Black‐Litterman Optimizer</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    fieldset { margin-bottom: 1rem; }
+    table { border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>🎯 Black‐Litterman Portfolio Optimizer</h1>
+  <form method="post">
+    <label><strong>Select Stocks:</strong></label><br>
+    <select name="tickers" multiple size="10" style="width:200px;">
+      {% for tk in tickers %}
+        <option value="{{ tk }}">{{ tk }}</option>
+      {% endfor %}
+    </select><br><br>
 
-    {% if results %}
-      <h2>Weights</h2>
-      <table>
-        <tr><th>Ticker</th><th>Weight</th></tr>
-        {% for t, w in results.weights.items() %}
-          <tr>
-            <td>{{ t }}</td>
-            <td>{{ "%.2f"|format(w) }}</td>
-          </tr>
-        {% endfor %}
-      </table>
+    <label>Start Date: <input type="date" name="start_date" required></label><br>
+    <label>End Date:   <input type="date" name="end_date"   required></label><br><br>
 
-      <h2>Performance</h2>
-      <ul>
-        {% for metric, value in results.performance.items() %}
-          <li>{{ metric }}: {{ value }}</li>
-        {% endfor %}
-      </ul>
+    <label>Number of Views:
+      <input type="number" id="num_views" name="num_views" value="0" min="0" max="10">
+    </label><br><br>
 
-      {% if img_data %}
-        <h2>Efficient Frontier</h2>
-        <img src="data:image/png;base64,{{ img_data }}" alt="Efficient Frontier">
-      {% endif %}
-    {% endif %}
-  </body>
+    <div id="views_container"></div>
+
+    <button type="submit">Optimize</button>
+  </form>
+
+  <script>
+    const tickers = {{ tickers|tojson }};
+    document.getElementById('num_views').addEventListener('change', function(){
+      const n = +this.value;
+      const cont = document.getElementById('views_container');
+      cont.innerHTML = '';
+      for(let i=0; i<n; i++){
+        const fs = document.createElement('fieldset');
+        fs.innerHTML = `
+          <legend>View ${i+1}</legend>
+          <label>Stock:
+            <select name="stock_${i}">
+              ${tickers.map(t=>`<option value="${t}">${t}</option>`).join('')}
+            </select>
+          </label><br>
+          <label>Expected Return (%) 
+            <input type="number" name="expected_${i}" value="8" step="0.1">
+          </label><br>
+          <label>Confidence (%) 
+            <input type="number" name="conf_${i}" value="50" step="1">
+          </label>
+        `;
+        cont.appendChild(fs);
+      }
+    });
+  </script>
+
+  {% if results %}
+    <h2>📊 Portfolio Weights</h2>
+    <table>
+      <tr><th>Stock</th><th>Weight</th></tr>
+      {% for s, w in results.weights.items() %}
+        <tr>
+          <td>{{ s }}</td>
+          <td>{{ '{:.1%}'.format(w) }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+
+    <h2>📈 Performance Metrics</h2>
+    <table>
+      <tr>
+        <th>Expected Return</th>
+        <th>Volatility</th>
+        <th>Sharpe Ratio</th>
+      </tr>
+      <tr>
+        <td>{{ '{:.1%}'.format(results.perf[0]) }}</td>
+        <td>{{ '{:.1%}'.format(results.perf[1]) }}</td>
+        <td>{{ '{:.2f}'.format(results.perf[2]) }}</td>
+      </tr>
+    </table>
+
+    <h2>📈 Efficient Frontier (Weights Bar)</h2>
+    {{ results.ef_plot | safe }}
+  {% endif %}
+</body>
 </html>
