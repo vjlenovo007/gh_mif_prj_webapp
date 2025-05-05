@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BL Portfolio Builder</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    .tickers { display: flex; flex-wrap: wrap; }
+    .tickers label { width: 120px; }
+    .results { margin-top: 2rem; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Build Your Portfolio (Black–Litterman)</h1>
+  <form method="post">
+    <div class="tickers">
+      {% for t in all_tickers %}
+        <label>
+          <input type="checkbox" name="tickers" value="{{ t }}" {% if loop.first %}checked{% endif %}>
+          {{ t }}
+        </label>
+      {% endfor %}
+    </div>
+    <button type="submit">Run Optimization</button>
+  </form>
+
+  {% if results %}
+    <div class="results">
+      <h2>Optimal Weights</h2>
+      <table>
+        <tr><th>Ticker</th><th>Weight</th></tr>
+        {% for t, w in results.weights.items() %}
+          <tr><td>{{ t }}</td><td>{{ "%.2%f"|format(w) }}</td></tr>
+        {% endfor %}
+      </table>
+
+      <h2>Performance</h2>
+      <ul>
+        {% for k, v in results.performance.items() %}
+          <li>{{ k }}: {{ "%.2f"|format(v) }}</li>
+        {% endfor %}
+      </ul>
+
+      <h2>Efficient Frontier</h2>
+      <img src="data:image/png;base64,{{ img_data }}" alt="Efficient Frontier">
+    </div>
+  {% endif %}
+</body>
+</html>
