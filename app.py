@@ -1,9 +1,9 @@
 from flask import Flask, render_template, request
-import io
-import base64
+import io, base64
 import yfinance as yf
 import pandas as pd
 from pypfopt import BlackLittermanModel, risk_models, EfficientFrontier
+from pypfopt import plotting
 import matplotlib.pyplot as plt
 
 app = Flask(__name__)
@@ -40,16 +40,25 @@ def index():
         # 2. Estimate the market covariance
         S = risk_models.sample_cov(returns)
 
-        # 3. Provide zero views for Black-Litterman to avoid Q/P errors
+        # 3. Fetch market capitalizations for implied returns (pi)
+        caps = {t: yf.Ticker(t).info.get("marketCap", 0) for t in tickers}
+        market_caps = pd.Series(caps)
+
+        # 4. Provide zero views for Black-Litterman
         views = pd.Series(0.0, index=returns.columns)
-        bl = BlackLittermanModel(S, absolute_views=views)
+        bl = BlackLittermanModel(S, market_caps=market_caps, absolute_views=views)
         ret_bl = bl.bl_returns()
         cov_bl = bl.bl_cov()
 
-        # 4. Optimize for maximum Sharpe ratio
-        ef = EfficientFrontier(ret_bl, cov_bl)
-        weights = ef.max_sharpe()
-        perf = ef.portfolio_performance(verbose=True)
+        # 5. Optimize: try max Sharpe then fall back to min volatility
+        try:
+            ef = EfficientFrontier(ret_bl, cov_bl)
+            weights = ef.max_sharpe(risk_free_rate=0.0)
+            perf = ef.portfolio_performance(verbose=True)
+        except Exception:
+            ef = EfficientFrontier(ret_bl, cov_bl)
+            weights = ef.min_volatility()
+            perf = ef.portfolio_performance(verbose=True)
 
         results = {
             "weights": weights,
@@ -60,10 +69,20 @@ def index():
             },
         }
 
-        # 5. Plot the efficient frontier
+        # 6. Plot the efficient frontier (use fresh instance inside plotting)
         fig, ax = plt.subplots()
-        ef.plot_efficient_frontier(ax=ax, show_assets=False)
+        try:
+            plotting.plot_efficient_frontier(
+                EfficientFrontier(ret_bl, cov_bl), ax=ax, show_assets=False
+            )
+        except Exception as e:
+            ax.text(
+                0.5, 0.5,
+                f"Error plotting frontier:\n{e}",
+                ha='center', va='center'
+            )
         ax.set_title("Efficient Frontier (Black–Litterman)")
+
         buf = io.BytesIO()
         fig.savefig(buf, format="png")
         buf.seek(0)
