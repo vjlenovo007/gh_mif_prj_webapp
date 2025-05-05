@@ -19,15 +19,17 @@ def index():
     if request.method == "POST":
         tickers = request.form.getlist("tickers")
 
-        # 1. Fetch historical price data (adjusted closes)
+        # 1. Fetch historical data
         raw = yf.download(
             tickers,
             period="1y",
             interval="1wk",
-            auto_adjust=True,
+            auto_adjust=False,
         )
-        # Normalize raw output to DataFrame where columns are tickers
-        if isinstance(raw, pd.Series):
+        # Extract closing prices
+        if isinstance(raw, pd.DataFrame) and isinstance(raw.columns, pd.MultiIndex):
+            data = raw["Close"]
+        elif isinstance(raw, pd.Series):
             data = raw.to_frame(name=tickers[0])
         else:
             data = raw
@@ -38,8 +40,9 @@ def index():
         # 2. Estimate the market covariance
         S = risk_models.sample_cov(returns)
 
-        # 3. Build Black-Litterman model without explicit views
-        bl = BlackLittermanModel(S)
+        # 3. Provide zero views for Black-Litterman to avoid Q/P errors
+        views = pd.Series(0.0, index=returns.columns)
+        bl = BlackLittermanModel(S, absolute_views=views)
         ret_bl = bl.bl_returns()
         cov_bl = bl.bl_cov()
 
