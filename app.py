@@ -1,100 +1,122 @@
 from flask import Flask, render_template, request
-import io, base64
-import yfinance as yf
 import pandas as pd
-from pypfopt import BlackLittermanModel, risk_models, EfficientFrontier
-from pypfopt import plotting
-import matplotlib.pyplot as plt
+import numpy as np
+import yfinance as yf
+from datetime import datetime
+from pypfopt import EfficientFrontier, objective_functions
+from pypfopt.black_litterman import BlackLittermanModel
 
 app = Flask(__name__)
 
-# Default list of companies for the portfolio
-ALL_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+def get_sp500_tickers():
+    url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+    tables = pd.read_html(url, header=0)
+    tickers = tables[0]['Symbol'].str.replace('.', '-').tolist()
+    return tickers
 
-@app.route("/", methods=["GET", "POST"])
+def get_data(tickers, start_date, end_date):
+    data = yf.download(" ".join(tickers),
+                       start=start_date,
+                       end=end_date,
+                       interval="1mo",
+                       auto_adjust=True)
+    prices = data["Close"]
+    if isinstance(prices, pd.Series):
+        prices = prices.to_frame()
+    # drop tickers with >30% missing
+    valid = prices.columns[prices.isnull().mean() < 0.3]
+    return prices[valid].ffill().dropna(how="all")
+
+def compute_returns(prices):
+    r = prices.pct_change().dropna()
+    return r.replace([np.inf, -np.inf], np.nan).dropna()
+
+def get_market_caps(tickers):
+    caps = {}
+    for tk in tickers:
+        info = yf.Ticker(tk).info
+        caps[tk] = (info.get("marketCap", 1e9) / 1e9)
+    return caps
+
+def run_black_litterman(returns, caps, views=None, confs=None,
+                        delta=2.5, rf=0.0, max_w=0.4):
+    # Covariance
+    S = returns.cov() * 12
+    # Market weights
+    mkt_w = pd.Series(caps).loc[returns.columns]
+    mkt_w /= mkt_w.sum()
+    # Implied returns
+    pi = delta * S.dot(mkt_w)
+    pi += rf
+    # Choose equilibrium or BL
+    if views:
+        view_s = pd.Series(views)
+        bl = BlackLittermanModel(S, pi=pi,
+                                 absolute_views=view_s,
+                                 view_confidences=confs)
+        ret = bl.bl_returns()
+    else:
+        ret = pi
+    # optimize
+    ef = EfficientFrontier(ret, S)
+    ef.add_constraint(lambda w: w >= 0)
+    ef.add_constraint(lambda w: w <= max_w)
+    ef.add_objective(objective_functions.L2_reg, gamma=0.1)
+    weights = ef.max_sharpe(rf)
+    w_clean = ef.clean_weights(cutoff=0.01)
+    perf = ef.portfolio_performance(rf)
+    return w_clean, perf
+
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    img_data = None
+    tickers = get_sp500_tickers()
     results = None
 
-    if request.method == "POST":
-        tickers = request.form.getlist("tickers")
+    if request.method == 'POST':
+        # form inputs
+        sel = request.form.getlist('tickers')
+        start = request.form['start_date']
+        end   = request.form['end_date']
+        nviews = int(request.form.get('num_views', 0))
 
-        # 1. Fetch historical data
-        raw = yf.download(
-            tickers,
-            period="1y",
-            interval="1wk",
-            auto_adjust=False,
-        )
-        # Extract closing prices
-        if isinstance(raw, pd.DataFrame) and isinstance(raw.columns, pd.MultiIndex):
-            data = raw["Close"]
-        elif isinstance(raw, pd.Series):
-            data = raw.to_frame(name=tickers[0])
-        else:
-            data = raw
+        views = {}
+        confs = []
+        for i in range(nviews):
+            t = request.form[f'stock_{i}']
+            er = float(request.form[f'expected_{i}'])/100
+            cf = float(request.form[f'conf_{i}'])/100
+            views[t] = er
+            confs.append(cf)
 
-        # Compute returns
-        returns = data.pct_change().dropna()
+        prices = get_data(sel, start, end)
+        rets   = compute_returns(prices)
+        caps   = get_market_caps(sel)
 
-        # 2. Estimate the market covariance
-        S = risk_models.sample_cov(returns)
+        w, perf = run_black_litterman(rets, caps,
+                                      views=views or None,
+                                      confs=confs or None)
 
-        # 3. Fetch market capitalizations for implied returns (pi)
-        caps = {t: yf.Ticker(t).info.get("marketCap", 0) for t in tickers}
-        market_caps = pd.Series(caps)
+        # Efficient frontier plot (simplified example)
+        from plotly.offline import plot
+        import plotly.graph_objects as go
 
-        # 4. Provide zero views for Black-Litterman
-        views = pd.Series(0.0, index=returns.columns)
-        bl = BlackLittermanModel(S, market_caps=market_caps, absolute_views=views)
-        ret_bl = bl.bl_returns()
-        cov_bl = bl.bl_cov()
-
-        # 5. Optimize: try max Sharpe then fall back to min volatility
-        try:
-            ef = EfficientFrontier(ret_bl, cov_bl)
-            weights = ef.max_sharpe(risk_free_rate=0.0)
-            perf = ef.portfolio_performance(verbose=True)
-        except Exception:
-            ef = EfficientFrontier(ret_bl, cov_bl)
-            weights = ef.min_volatility()
-            perf = ef.portfolio_performance(verbose=True)
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=list(w.keys()),
+            y=list(w.values()),
+            marker_color='steelblue'
+        ))
+        ef_div = plot(fig, output_type='div', include_plotlyjs=False)
 
         results = {
-            "weights": weights,
-            "performance": {
-                "Expected return": perf[0],
-                "Volatility": perf[1],
-                "Sharpe ratio": perf[2],
-            },
+            'weights': w,
+            'perf': perf,
+            'ef_plot': ef_div
         }
 
-        # 6. Plot the efficient frontier (use fresh instance inside plotting)
-        fig, ax = plt.subplots()
-        try:
-            plotting.plot_efficient_frontier(
-                EfficientFrontier(ret_bl, cov_bl), ax=ax, show_assets=False
-            )
-        except Exception as e:
-            ax.text(
-                0.5, 0.5,
-                f"Error plotting frontier:\n{e}",
-                ha='center', va='center'
-            )
-        ax.set_title("Efficient Frontier (Black–Litterman)")
+    return render_template('index.html',
+                           tickers=tickers,
+                           results=results)
 
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png")
-        buf.seek(0)
-        img_data = base64.b64encode(buf.read()).decode("utf8")
-
-    return render_template(
-        "index.html",
-        all_tickers=ALL_TICKERS,
-        results=results,
-        img_data=img_data,
-    )
-
-if __name__ == "__main__":
-    # For local debugging; on Azure App Service this is handled by gunicorn
-    app.run(host="0.0.0.0", port=5000, debug=True)
+if __name__ == '__main__':
+    app.run(debug=True)
