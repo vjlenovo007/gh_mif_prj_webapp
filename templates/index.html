@@ -2,120 +2,92 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Portfolio Optimizer</title>
-  <!-- Bootstrap CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- Google Font -->
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <title>Black‐Litterman Optimizer</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
-    body {
-      font-family: 'Roboto', sans-serif;
-      background-color: #f8f9fa;
-    }
-    .navbar-brand {
-      font-weight: 700;
-      font-size: 1.5rem;
-    }
-    .form-card {
-      margin-top: 2rem;
-    }
-    footer {
-      margin-top: 4rem;
-      padding: 1rem 0;
-      background-color: #343a40;
-      color: #fff;
-      text-align: center;
-    }
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    fieldset { margin-bottom: 1rem; }
+    table { border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; }
   </style>
 </head>
 <body>
-  <!-- Navigation Bar -->
-  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-    <div class="container">
-      <a class="navbar-brand" href="#">PortfolioOpt</a>
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-      <div class="collapse navbar-collapse" id="navbarNav">
-        <ul class="navbar-nav ms-auto">
-          <li class="nav-item">
-            <a class="nav-link active" aria-current="page" href="#">Home</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#">About</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#">Contact</a>
-          </li>
-        </ul>
-      </div>
-    </div>
-  </nav>
+  <h1>🎯 Black‐Litterman Portfolio Optimizer</h1>
+  <form method="post">
+    <label><strong>Select Stocks:</strong></label><br>
+    <select name="tickers" multiple size="10" style="width:200px;">
+      {% for tk in tickers %}
+        <option value="{{ tk }}">{{ tk }}</option>
+      {% endfor %}
+    </select><br><br>
 
-  <!-- Main Content -->
-  <div class="container form-card">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h2 class="card-title text-center mb-4">Optimize Your Portfolio</h2>
-        <form method="post">
-          <div class="row g-3">
-            <div class="col-md-4">
-              <label for="tickers" class="form-label">Tickers (comma-separated)</label>
-              <input type="text" class="form-control" id="tickers" name="tickers" placeholder="AAPL, MSFT, GOOG" required>
-            </div>
-            <div class="col-md-4">
-              <label for="start_date" class="form-label">Start Date</label>
-              <input type="date" class="form-control" id="start_date" name="start_date" required>
-            </div>
-            <div class="col-md-4">
-              <label for="end_date" class="form-label">End Date</label>
-              <input type="date" class="form-control" id="end_date" name="end_date" required>
-            </div>
-          </div>
-          <div class="text-center mt-4">
-            <button type="submit" class="btn btn-primary btn-lg">Run Optimization</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <label>Start Date: <input type="date" name="start_date" required></label><br>
+    <label>End Date:   <input type="date" name="end_date"   required></label><br><br>
 
-    <!-- Results Table -->
-    {% if weights %}
-    <div class="card shadow-sm mt-5">
-      <div class="card-body">
-        <h3 class="card-title">Optimized Weights</h3>
-        <div class="table-responsive">
-          <table class="table table-striped table-hover">
-            <thead class="table-dark">
-              <tr>
-                <th>Ticker</th>
-                <th>Weight</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for t, w in weights.items() %}
-                <tr>
-                  <td>{{ t }}</td>
-                  <td>{{ "%.2f"|format(w * 100) }}%</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-    {% endif %}
-  </div>
+    <label>Number of Views:
+      <input type="number" id="num_views" name="num_views" value="0" min="0" max="10">
+    </label><br><br>
 
-  <!-- Footer -->
-  <footer>
-    <div class="container">
-      <small>&copy; {{ current_year }} PortfolioOpt. All rights reserved.</small>
-    </div>
-  </footer>
+    <div id="views_container"></div>
 
-  <!-- Bootstrap JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <button type="submit">Optimize</button>
+  </form>
+
+  <script>
+    const tickers = {{ tickers|tojson }};
+    document.getElementById('num_views').addEventListener('change', function(){
+      const n = +this.value;
+      const cont = document.getElementById('views_container');
+      cont.innerHTML = '';
+      for(let i=0; i<n; i++){
+        const fs = document.createElement('fieldset');
+        fs.innerHTML = `
+          <legend>View ${i+1}</legend>
+          <label>Stock:
+            <select name="stock_${i}">
+              ${tickers.map(t=>`<option value="${t}">${t}</option>`).join('')}
+            </select>
+          </label><br>
+          <label>Expected Return (%) 
+            <input type="number" name="expected_${i}" value="8" step="0.1">
+          </label><br>
+          <label>Confidence (%) 
+            <input type="number" name="conf_${i}" value="50" step="1">
+          </label>
+        `;
+        cont.appendChild(fs);
+      }
+    });
+  </script>
+
+  {% if results %}
+    <h2>📊 Portfolio Weights</h2>
+    <table>
+      <tr><th>Stock</th><th>Weight</th></tr>
+      {% for s, w in results.weights.items() %}
+        <tr>
+          <td>{{ s }}</td>
+          <td>{{ '{:.1%}'.format(w) }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+
+    <h2>📈 Performance Metrics</h2>
+    <table>
+      <tr>
+        <th>Expected Return</th>
+        <th>Volatility</th>
+        <th>Sharpe Ratio</th>
+      </tr>
+      <tr>
+        <td>{{ '{:.1%}'.format(results.perf[0]) }}</td>
+        <td>{{ '{:.1%}'.format(results.perf[1]) }}</td>
+        <td>{{ '{:.2f}'.format(results.perf[2]) }}</td>
+      </tr>
+    </table>
+
+    <h2>📈 Efficient Frontier (Weights Bar)</h2>
+    {{ results.ef_plot | safe }}
+  {% endif %}
 </body>
 </html>
