@@ -26,16 +26,11 @@ def index():
             interval="1wk",
             auto_adjust=True,
         )
-        # Extract the 'Close' price series regardless of DataFrame shape
+        # Normalize raw output to DataFrame of prices where columns are tickers
         if isinstance(raw, pd.Series):
-            # Single ticker returns a Series
             data = raw.to_frame(name=tickers[0])
-        elif isinstance(raw.columns, pd.MultiIndex):
-            # Multiple tickers: MultiIndex with level=1 as fields
-            data = raw.xs('Close', axis=1, level=1)
         else:
-            # Multiple fields for a single ticker
-            data = raw[['Close']]
+            data = raw  # DataFrame with tickers as columns
 
         # Compute returns
         returns = data.pct_change().dropna()
