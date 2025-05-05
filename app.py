@@ -30,7 +30,7 @@ def index():
         if isinstance(raw, pd.Series):
             data = raw.to_frame(name=tickers[0])
         else:
-            data = raw  # DataFrame with tickers as columns
+            data = raw
 
         # Compute returns
         returns = data.pct_change().dropna()
@@ -38,8 +38,8 @@ def index():
         # 2. Estimate the market covariance
         S = risk_models.sample_cov(returns)
 
-        # 3. Build Black-Litterman model (no views)
-        bl = BlackLittermanModel(S, pi="market_cap", absolute_views={})
+        # 3. Build Black-Litterman model without explicit views
+        bl = BlackLittermanModel(S)
         ret_bl = bl.bl_returns()
         cov_bl = bl.bl_cov()
 
@@ -59,7 +59,6 @@ def index():
 
         # 5. Plot the efficient frontier
         fig, ax = plt.subplots()
-        ef = EfficientFrontier(ret_bl, cov_bl)
         ef.plot_efficient_frontier(ax=ax, show_assets=False)
         ax.set_title("Efficient Frontier (Black–Litterman)")
         buf = io.BytesIO()
