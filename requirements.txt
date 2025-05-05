@@ -1,5 +1,7 @@
-Flask>=2.0
-yfinance>=0.2
-PyPortfolioOpt>=1.5
-matplotlib>=3.5
-pandas>=1.4
+flask
+pandas
+numpy
+yfinance
+plotly
+PyPortfolioOpt
+lxml
