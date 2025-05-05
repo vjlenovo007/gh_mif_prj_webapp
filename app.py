@@ -26,7 +26,7 @@ def index():
             interval="1wk",
             auto_adjust=True,
         )
-        # Normalize raw output to DataFrame of prices where columns are tickers
+        # Normalize raw output to DataFrame where columns are tickers
         if isinstance(raw, pd.Series):
             data = raw.to_frame(name=tickers[0])
         else:
@@ -38,8 +38,8 @@ def index():
         # 2. Estimate the market covariance
         S = risk_models.sample_cov(returns)
 
-        # 3. Build Black-Litterman model
-        bl = BlackLittermanModel(S, pi="market_cap", absolute_views=None)
+        # 3. Build Black-Litterman model (no views)
+        bl = BlackLittermanModel(S, pi="market_cap", absolute_views={})
         ret_bl = bl.bl_returns()
         cov_bl = bl.bl_cov()
 
