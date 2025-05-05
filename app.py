@@ -19,14 +19,25 @@ def index():
     if request.method == "POST":
         tickers = request.form.getlist("tickers")
 
-        # 1. Fetch historical returns (adjusted closes)
-        data = yf.download(
+        # 1. Fetch historical price data (adjusted closes)
+        raw = yf.download(
             tickers,
             period="1y",
             interval="1wk",
-            auto_adjust=True,   # use adjusted close prices
-            group_by="ticker",
-        )["Close"]
+            auto_adjust=True,
+        )
+        # Extract the 'Close' price series regardless of DataFrame shape
+        if isinstance(raw, pd.Series):
+            # Single ticker returns a Series
+            data = raw.to_frame(name=tickers[0])
+        elif isinstance(raw.columns, pd.MultiIndex):
+            # Multiple tickers: MultiIndex with level=1 as fields
+            data = raw.xs('Close', axis=1, level=1)
+        else:
+            # Multiple fields for a single ticker
+            data = raw[['Close']]
+
+        # Compute returns
         returns = data.pct_change().dropna()
 
         # 2. Estimate the market covariance
